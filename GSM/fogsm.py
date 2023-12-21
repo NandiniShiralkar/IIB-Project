@@ -7,7 +7,7 @@ class FoGSMModel(nn.Module):
     def __init__(self,thetas=None, phases=None, length_scale_feature=1.0, length_scale_amplitude=1.2, kappa=1.0, jitter=1e-5, grid_size=10, frequency=1.0):
         super(FoGSMModel, self).__init__()
 
-        self.dtype = torch.float32
+        self.dtype = torch.float64
 
         self.length_scale_feature = Parameter(torch.tensor(length_scale_feature, dtype=self.dtype))
         self.length_scale_amplitude = Parameter(torch.tensor(length_scale_amplitude, dtype=self.dtype))
@@ -101,7 +101,7 @@ class FoGSMModel(nn.Module):
     
         # Combine
         I = g * A    
-        I = torch.sum(I.reshape(8, 10, 10), dim=0)
+        I = torch.sum(I.reshape(len(self.thetas), self.grid_size, self.grid_size), dim=0)
 
         return I, g
     
