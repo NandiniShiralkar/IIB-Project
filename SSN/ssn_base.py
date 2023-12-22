@@ -2,7 +2,7 @@ from _imports import *
 from utils import Euler2fixedpt
 
 class _SSN_Base(object):
-    def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None, device='cpu', dtype=torch.float32):
+    def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None, device='cpu', dtype=torch.float64):
         self.n = n
         self.k = k
         self.Ne = Ne
@@ -23,15 +23,6 @@ class _SSN_Base(object):
     @property
     def neuron_params(self):
         return dict(n=self.n, k=self.k)
-
-    @property
-    def dim(self):
-        return self.N
-
-    @property
-    def tau_x_vec(self):
-        """ time constants for the generalised state-vector, x """
-        return self.tau_vec
 
     def powlaw(self, u):
         return self.k * F.relu(u).pow(self.n)
@@ -122,7 +113,6 @@ class _SSN_Base(object):
             drdt = lambda r : self.drdt_multi(r, inp_vec)
         
         test_r = torch.ones_like(inp_vec)  # Replace with an appropriate test value
-        print("PyTorch: drdt(test_r) =", drdt(test_r).shape)
             
         r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, device=device, dtype=dtype)
         if not CONVG:

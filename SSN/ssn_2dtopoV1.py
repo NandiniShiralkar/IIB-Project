@@ -4,13 +4,13 @@ from ssn_base import _SSN_Base
 class SSN2DTopoV1(_SSN_Base,nn.Module):
     _Lring = 180
 
-    def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, **kwargs):
+    def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, ori_map=None,**kwargs):
         Ne = Ni = grid_pars.gridsize_Nx ** 2
         tau_vec = torch.cat([tauE * torch.ones(Ne), tauI * torch.ones(Ni)])
         super(SSN2DTopoV1, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni, tau_vec=tau_vec, **kwargs)
         self.grid_pars = grid_pars
         self.conn_pars = conn_pars
-        self._make_maps(grid_pars)
+        self._make_maps(grid_pars,ori_map)
         if conn_pars is not None:
             self.make_W(**conn_pars)
 
@@ -25,12 +25,6 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
         return torch.stack([self.x_vec, self.y_vec, self.ori_vec]).T
 
     @property
-    def center_inds(self):
-        """ Indices of center-E and center-I neurons """
-        # Find the indices where x and y coordinates are both zero
-        return torch.where((self.x_vec == 0) & (self.y_vec == 0))[0]
-
-    @property
     def x_vec_degs(self):
         # Convert x coordinates from mm to degrees
         return self.x_vec / self.grid_pars.magnif_factor
@@ -39,6 +33,12 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
     def y_vec_degs(self):
         # Convert y coordinates from mm to degrees
         return self.y_vec / self.grid_pars.magnif_factor
+    
+    @property
+    def center_inds(self):
+        """ Indices of center-E and center-I neurons """
+        # Find the indices where x and y coordinates are both zero
+        return torch.where((self.x_vec == 0) & (self.y_vec == 0))[0]
 
     def xys2inds(self, xys=[[0, 0]], units="degree"):
         """
@@ -90,7 +90,7 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
             map = (vec[:self.Ne].reshape((Nx, Nx)), vec[self.Ne:].reshape((Nx, Nx)))
         return map
 
-    def _make_maps(self, grid_pars=None):
+    def _make_maps(self, grid_pars=None,ori_map=None):
         """
         Create retinotopic and orientation maps.
         """
@@ -100,7 +100,7 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
             self.grid_pars = grid_pars
 
         self._make_retinmap()
-        self._make_orimap()
+        self.ori_map = self._make_orimap() if ori_map is None else ori_map
 
         return self.x_map, self.y_map, self.ori_map
 
@@ -186,9 +186,8 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
 
         return xy_dist, ori_dist
 
-    def make_W(self, J_2x2, s_2x2, p_local, sigma_oris=45, Jnoise=0,
-               Jnoise_GAUSSIAN=False, MinSyn=1e-4, CellWiseNormalized=True,
-               PERIODIC=True):  # , prngKey=0):
+    def make_W(self, J_2x2, s_2x2, p_local, sigma_oris=45, PERIODIC=True, Jnoise=0,
+               Jnoise_GAUSSIAN=False, MinSyn=1e-4, CellWiseNormalized=True):  # , prngKey=0):
         """
         make the full recurrent connectivity matrix W
         :param J_2x2: total strength of weights of different pre/post cell-type
@@ -218,16 +217,10 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
         if sigma_oris.numel() == 1:
             sigma_oris = sigma_oris * torch.ones((2, 2))
 
-        #if not torch.is_tensor(sigma_oris):
-        # If it's not a tensor, we make it into a 2x2 tensor
-            #sigma_oris = torch.full((2, 2), fill_value=sigma_oris, device = self.device)
-
         p_local = torch.tensor(p_local)
         if p_local.numel() == 1:
             p_local = p_local * torch.ones(2)
 
-        #if not torch.is_tensor(p_local) or p_local.numel() == 1:
-           # p_local = torch.full((2,), fill_value=p_local, device=self.device)
 
         shape = self.xy_dist.shape
         Wblks = [[torch.zeros(shape, device=self.device), torch.zeros(shape, device=self.device)],
@@ -251,18 +244,17 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
                 # sparsify (set small weights to zero)
                 W = torch.where(W < MinSyn, torch.zeros_like(W), W)
 
-                # row-wise normalize
-                tW = torch.sum(W, dim=1, keepdim=True)
-                if not CellWiseNormalized:
-                    tW = tW.mean()
-                W = W / tW
-
-                #tW = torch.sum(W, dim=1)
-                #if not CellWiseNormalized:
-                   # tW = torch.mean(tW)
-                #W = W / tW.unsqueeze(1)
+                # normalize (do it row-by-row if CellWiseNormalized, such that all row-sums are 1
+                #            -- other wise only the average row-sum is 1)                
+                sW = torch.sum(W, dim=1, keepdim=True)
+                if CellWiseNormalized:
+                    W = W / sW
+                else:
+                    sW = sW.mean()
+                    W = W / sW
 
                 # for E projections, add the local part
+                # note: this doesn't perturb the above normalization: convex combination of two "probability" vecs
                 if b == 0:
                     W = p_local[a] * torch.eye(*W.shape, device=self.device) + (1 - p_local[a]) * W
 

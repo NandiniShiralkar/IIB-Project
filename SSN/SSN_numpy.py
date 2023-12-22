@@ -1,6 +1,6 @@
 import numpy as np
 
-def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True):
+def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=False, silent=False, Tfrac_CV=0):
     """
     Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
     Euler update with sufficiently large dt (to gain in computational time).
@@ -18,7 +18,10 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         value and inputting a value for 'xtol' equal to xtol_desired/xmin.
     PLOT: if True, plot the convergence of some component
     inds: indices of x (state-vector) to plot
-
+    verbose: if True print convergence criteria even if passed (function always prints out a warning if it doesn't converge).
+    Tfrac_var: if not zero, maximal temporal CV (coeff. of variation) of state vector components, over the final
+               Tfrac_CV fraction of Euler timesteps, is calculated and printed out.
+               
     OUT:
     xvec = found fixed point solution
     CONVG = True if determined converged, False if not
@@ -26,20 +29,30 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
 
     if PLOT:
         if inds is None:
-            N = x_initial.shape[0] # x_initial.size
-            inds = [int(N/4), int(3*N/4)]
-        xplot = x_initial[inds][:,None]
+            x_dim = x_initial.size
+            inds = [int(x_dim/4), int(3*x_dim/4)]
+        xplot = x_initial.flatten()[inds][:,None]
 
     Nmax = int(np.round(Tmax/dt))
     Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else int(Nmax/2)
     xvec = x_initial
     CONVG = False
+
+    if Tfrac_CV > 0:
+        xmean = np.zeros_like(xvec)
+        xsqmean = np.zeros_like(xvec)
+        Nsamp = 0
+
     for n in range(Nmax):
         dx = dxdt(xvec) * dt
         xvec = xvec + dx
         if PLOT:
-            #xplot = np.asarray([xplot, xvvec[inds]])
-            xplot = np.hstack((xplot,xvec[inds][:,None]))
+            xplot = np.hstack((xplot, xvec.flatten()[inds][:,None]))
+        
+        if Tfrac_CV > 0 and n >= (1-Tfrac_CV) * Nmax:
+            xmean = xmean + xvec
+            xsqmean = xsqmean + xvec**2
+            Nsamp = Nsamp + 1
 
         if n > Nmin:
             if np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol:
@@ -48,9 +61,18 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
                 CONVG = True
                 break
 
-    if not CONVG: # n == Nmax:
+    if not CONVG and not silent: # n == Nmax:
         print("\n Warning 1: reached Tmax={}, before convergence to fixed point.".format(Tmax))
         print("       max(abs(dx./max(abs(xvec), {}))) = {},   xtol={}.\n".format(xmin, np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max(), xtol))
+
+        if Tfrac_CV > 0:
+            xmean = xmean/Nsamp
+            xvec_SD = np.sqrt(xsqmean/Nsamp - xmean**2)
+            # CV = xvec_SD / xmean
+            # CVmax = CV.max()
+            CVmax = xvec_SD.max() / xmean.max()
+            print(f"max(SD)/max(mean) of state vector in the final {Tfrac_CV:.2} fraction of Euler steps was {CVmax:.5}")
+
         #mybeep(.2,350)
         #beep
 
@@ -60,6 +82,7 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         plt.plot(np.arange(n+2)*dt, xplot.T, 'o-')
 
     return xvec, CONVG
+
 
 class _SSN_Base(object):
     def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None):
@@ -82,6 +105,7 @@ class _SSN_Base(object):
         #     sign_vec = np.hstack(np.ones(self.Ne), -np.ones(self.Ni))
         #     self.W = W * sign_vec[None, :] # to respect Dale
 
+
     @property
     def neuron_params(self):
         return dict(n=self.n, k=self.k)
@@ -99,8 +123,10 @@ class _SSN_Base(object):
     def powlaw(self, u):
         return  self.k * np.maximum(0,u)**self.n
 
+
     def drdt(self, r, inp_vec):
         return ( -r + self.powlaw(self.W @ r + inp_vec) ) / self.tau_vec
+
 
     def drdt_multi(self, r, inp_vec):
         """
@@ -109,6 +135,7 @@ class _SSN_Base(object):
         """
         return (( -r + self.powlaw(self.W @ r + inp_vec) ).T / self.tau_vec ).T
 
+
     def dxdt(self, x, inp_vec):
         """
         allowing for descendent SSN types whose state-vector, x, is different
@@ -116,11 +143,14 @@ class _SSN_Base(object):
         """
         return self.drdt(x, inp_vec)
 
+
     def gains_from_v(self, v):
         return self.n * self.k * np.maximum(0,v)**(self.n-1)
 
+
     def gains_from_r(self, r):
         return self.n * self.k**(1/self.n) * r**(1-1/self.n)
+
 
     def DCjacobian(self, r):
         """
@@ -129,6 +159,7 @@ class _SSN_Base(object):
         """
         Phi = self.gains_from_r(r)
         return -np.eye(self.N) + Phi[:, None] * self.W
+
 
     def jacobian(self, DCjacob=None, r=None):
         """
@@ -139,9 +170,11 @@ class _SSN_Base(object):
             DCjacob = self.DCjacobian(r)
         return DCjacob / self.tau_x_vec[:, None] # equivalent to np.diag(tau_x_vec) * DCjacob
 
+
     def jacobian_eigvals(self, DCjacob=None, r=None):
         Jacob = self.jacobian(DCjacob=DCjacob, r=r)
         return np.linalg.eigvals(Jacob)
+
 
     def inv_G(self, omega, DCjacob, r=None):
         """
@@ -153,32 +186,32 @@ class _SSN_Base(object):
             DCjacob = self.DCjacobian(r)
         return -1j*omega * np.diag(self.tau_x_vec) - DCjacob
 
-    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True):
+
+    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=False, silent=False):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        # Perform a test call to the drdt function and print the result
-        test_r = np.ones(inp_vec.shape)  # Replace with an appropriate test value
-        print("NumPy: drdt(test_r) =", np.shape(drdt(test_r)))
-        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose)
-        if not CONVG:
+        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
+        if not CONVG and not silent:
             print('Did not reach fixed point.')
         #else:
         #    return r_fp
         return r_fp, CONVG
 
-    def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
+
+    def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=False, silent=False):
         if x_init is None:
             x_init = np.zeros((self.dim,))
         dxdt = lambda x : self.dxdt(x, inp_vec)
-        x_fp, CONVG = Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol=xtol, PLOT=PLOT)
-        if not CONVG:
+        x_fp, CONVG = Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
+        if not CONVG and not silent:
             print('Did not reach fixed point.')
         #else:
         #    return x_fp
         return x_fp, CONVG
+
 
     def make_noise_cov(self, noise_pars):
         # the script assumes independent noise to E and I, and spatially uniform magnitude of noise
@@ -187,11 +220,11 @@ class _SSN_Base(object):
         spatl_filt = np.array(1)
 
         return noise_sigsq, spatl_filt
-    
+
 class SSN2DTopoV1(_SSN_Base):
     _Lring = 180
 
-    def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, **kwargs):
+    def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, ori_map=None, **kwargs):
         Ni = Ne = grid_pars.gridsize_Nx**2
         tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
 
@@ -200,9 +233,10 @@ class SSN2DTopoV1(_SSN_Base):
 
         self.grid_pars = grid_pars
         self.conn_pars = conn_pars
-        self._make_maps(grid_pars)
+        self._make_maps(grid_pars, ori_map)
         if conn_pars is not None: # conn_pars = None allows for ssn-object initialization without a W
             self.make_W(**conn_pars)
+
 
     @property
     def neuron_params(self):
@@ -213,17 +247,18 @@ class SSN2DTopoV1(_SSN_Base):
         return np.vstack([self.x_vec, self.y_vec, self.ori_vec]).T
 
     @property
-    def center_inds(self):
-        """ indices of center-E and center-I neurons """
-        return np.where((self.x_vec==0) & (self.y_vec==0))[0]
-
-    @property
     def x_vec_degs(self):
         return self.x_vec / self.grid_pars.magnif_factor
 
     @property
     def y_vec_degs(self):
         return self.y_vec / self.grid_pars.magnif_factor
+
+    @property
+    def center_inds(self):
+        """ indices of center-E and center-I neurons """
+        return np.where((self.x_vec==0) & (self.y_vec==0))[0]
+
 
     def xys2inds(self, xys=[[0,0]], units="degree"):
         """
@@ -243,6 +278,7 @@ class SSN2DTopoV1(_SSN_Base):
             inds.append([np.argmin(distsq[:self.Ne]), self.Ne + np.argmin(distsq[self.Ne:])])
         return np.asarray(inds).T
 
+
     def xys2Emapinds(self, xys=[[0,0]], units="degree"):
         """
         (i,j) of E neurons at location (x,y) (by default in degrees).
@@ -257,6 +293,7 @@ class SSN2DTopoV1(_SSN_Base):
                                             i // self.grid_pars.gridsize_Nx])
         return vecind2mapind(self.xys2inds(xys)[0])
 
+
     def vec2map(self, vec):
         assert vec.ndim == 1
         Nx = self.grid_pars.gridsize_Nx
@@ -267,16 +304,18 @@ class SSN2DTopoV1(_SSN_Base):
                    np.reshape(vec[self.Ne:], (Nx, Nx)))
         return map
 
-    def _make_maps(self, grid_pars=None):
+
+    def _make_maps(self, grid_pars=None, ori_map=None):
         if grid_pars is None:
             grid_pars = self.grid_pars
         else:
             self.grid_pars = grid_pars
 
         self._make_retinmap()
-        self._make_orimap()
+        self.ori_map = self._make_orimap() if ori_map is None else ori_map
 
         return self.x_map, self.y_map, self.ori_map
+
 
     def _make_retinmap(self, grid_pars=None):
         """
@@ -304,6 +343,7 @@ class SSN2DTopoV1(_SSN_Base):
         self.x_vec = np.tile(X.ravel(), (2,))
         self.y_vec = np.tile(Y.ravel(), (2,))
         return self.x_map, self.y_map
+
 
     def _make_orimap(self, hyper_col=None, nn=30, X=None, Y=None):
         '''
@@ -336,8 +376,11 @@ class SSN2DTopoV1(_SSN_Base):
         # #for debugging/testing:
         # self.ori_map = 180 * (self.y_map - self.y_map.min())/(self.y_map.max() - self.y_map.min())
         # self.ori_map[self.ori_map.shape[0]//2+1:,:] = 180
+
         self.ori_vec = np.tile(self.ori_map.ravel(), (2,))
+
         return self.ori_map
+
 
     def _make_distances(self, PERIODIC):
         Lx = Ly = self.grid_pars.gridsize_mm
@@ -357,9 +400,9 @@ class SSN2DTopoV1(_SSN_Base):
 
         return xy_dist, ori_dist
 
-    def make_W(self, J_2x2, s_2x2, p_local, sigma_oris=45, Jnoise=0,
-                Jnoise_GAUSSIAN=False, MinSyn=1e-4, CellWiseNormalized=True,
-                                                    PERIODIC=True): #, prngKey=0):
+
+    def make_W(self, J_2x2, s_2x2, p_local, sigma_oris=45, PERIODIC=True, Jnoise=0,
+                Jnoise_GAUSSIAN=False, MinSyn=1e-4, CellWiseNormalized=True): #, prngKey=0):
         """
         make the full recurrent connectivity matrix W
         In:
@@ -371,6 +414,7 @@ class SSN2DTopoV1(_SSN_Base):
         Output/side-effects:
         self.W
         """
+        # set self.conn_pars to the dictionary of inputs to make_W
         conn_pars = locals()
         conn_pars.pop("self")
         self.conn_pars = conn_pars
@@ -380,6 +424,8 @@ class SSN2DTopoV1(_SSN_Base):
             ori_dist = self.ori_dist
         else:
             xy_dist, ori_dist = self._make_distances(PERIODIC)
+
+        if np.isscalar(s_2x2): s_2x2 = s_2x2 * np.ones((2,2))
 
         if np.isscalar(sigma_oris): sigma_oris = sigma_oris * np.ones((2,2))
 
@@ -405,14 +451,16 @@ class SSN2DTopoV1(_SSN_Base):
                 # sparsify (set small weights to zero)
                 W = np.where(W < MinSyn, 0, W) # what's the point of this if not using sparse matrices
 
-                # row-wise normalize
-                tW = np.sum(W, axis=1)
-                if not CellWiseNormalized:
-                    tW = np.mean(tW)
-                W = W / tW
+                # normalize (do it row-by-row if CellWiseNormalized, such that all row-sums are 1
+                #            -- other wise only the average row-sum is 1)
+                sW = np.sum(W, axis=1)
+                if CellWiseNormalized:
+                    W = W / sW[:, None]
+                else:
+                    W = W / sW.mean()
 
                 # for E projections, add the local part
-                # NOTE: alterntaively could do this before adding noise & normalizing
+                # NOTE: this doesn't perturb the above normalization: convex combination of two "probability" vecs
                 if b == 0:
                     W = p_local[a] * np.eye(*W.shape) + (1-p_local[a]) * W
 
@@ -420,6 +468,7 @@ class SSN2DTopoV1(_SSN_Base):
 
         self.W = np.block(Wblks)
         return self.W
+
 
     def _make_inp_ori_dep(self, ONLY_E=False, ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1):
         """
@@ -441,6 +490,7 @@ class SSN2DTopoV1(_SSN_Base):
 
         return ori_fac
 
+
     def make_grating_input(self, radius_s, sigma_RF=0.4, ONLY_E=False,
             ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1, contrast=1):
         """
@@ -461,6 +511,7 @@ class SSN2DTopoV1(_SSN_Base):
         spat_fac = sigmoid((radius_s - r_vec)/sigma_RF)
 
         return contrast * ori_fac * spat_fac
+
 
     def make_gabor_input(self, sigma_Gabor=0.5, ONLY_E=False,
             ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1, contrast=1):
@@ -491,6 +542,7 @@ class SSN2DTopoV1(_SSN_Base):
     #
     #     spatl_filt = ...
 
+
     def make_eLFP_from_inds(self, LFPinds):
         """
         makes a single LFP electrode signature (normalized spatial weight
@@ -505,6 +557,7 @@ class SSN2DTopoV1(_SSN_Base):
         # eI = 1/len(LFPinds) * np.isin(np.arange(self.N) - self.Ne, LFPinds) # assuming elements of LFPinds are all smaller than self.Ne, e_LFP will only have 1's on I elements
 
         return e_LFP
+
 
     def make_eLFP_from_xy(self, probe_xys, LFPradius=0.2, unit_xys="degree", unit_rad="mm"):
         """
@@ -530,3 +583,5 @@ class SSN2DTopoV1(_SSN_Base):
             (LFPradius**2 > (self.x_vec - xy[0])**2 + (self.y_vec - xy[1])**2)))
 
         return np.asarray(e_LFP).T
+
+
