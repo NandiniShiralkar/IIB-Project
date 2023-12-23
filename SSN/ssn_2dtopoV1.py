@@ -6,7 +6,7 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
 
     def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, ori_map=None,**kwargs):
         Ne = Ni = grid_pars.gridsize_Nx ** 2
-        tau_vec = torch.cat([tauE * torch.ones(Ne), tauI * torch.ones(Ni)])
+        tau_vec = torch.cat([tauE * torch.ones(Ne), tauI * torch.ones(Ni)]).double()
         super(SSN2DTopoV1, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni, tau_vec=tau_vec, **kwargs)
         self.grid_pars = grid_pars
         self.conn_pars = conn_pars
@@ -263,9 +263,8 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
         self.W = torch.cat([
                 torch.cat([Wblks[0][0], Wblks[0][1]], dim=1), 
                 torch.cat([Wblks[1][0], Wblks[1][1]], dim=1)
-            ], dim=0)
-        self.W = self.W.float()  # Convert W to float32
-
+            ], dim=0).double()
+        
         return self.W
 
     def _make_inp_ori_dep(self, ONLY_E=False, ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1):
@@ -382,40 +381,3 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
             e_LFP.append(1.0 * (self.EI & (dist_sq < LFPradius**2)))
 
         return torch.stack(e_LFP).T
-
-    def run_and_visualise_dynamics(self, inp_vec, total_time, dt):
-        
-        """
-        Run the dynamics from a fixed point and visualise the neuron states over time.
-
-        Args:
-        inp_vec (torch.Tensor): Input vector to find the fixed point.
-        total_time (float): Total time to run the simulation.
-        dt (float): Time step for the simulation.
-        """
-        # Find the fixed point for the given input
-        #r_fixed, _ = self.fixed_point(inp_vec)
-
-        # Run the dynamics starting from the fixed point
-        num_steps = int(total_time / dt)
-        neuron_states = torch.zeros((num_steps, self.N), device=self.device)
-        #r = r_fixed
-        r = torch.zeros((self.N*2, 1), device=self.device)
-
-        for step in range(num_steps):
-            # Calculate rate of change of neuron states
-            drdt = self.drdt(r, inp_vec)
-
-            # Euler integration
-            r += dt * drdt
-
-            neuron_states[step, :] = r
-
-        # Visualization
-        plt.figure(figsize=(12, 6))
-        plt.imshow(neuron_states.cpu().numpy().T, aspect='auto', cmap='viridis')
-        plt.colorbar(label='Neuron State')
-        plt.xlabel('Time Step')
-        plt.ylabel('Neuron Index')
-        plt.title('Neuron States Over Time')
-        plt.show()

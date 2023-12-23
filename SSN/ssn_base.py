@@ -28,7 +28,7 @@ class _SSN_Base(object):
         return self.k * F.relu(u).pow(self.n)
 
     def drdt(self, r, inp_vec):
-            
+        
         return (-r + self.powlaw(self.W @ r + inp_vec)) / self.tau_vec
 
     def drdt_multi(self, r, inp_vec):
@@ -82,7 +82,7 @@ class _SSN_Base(object):
             DCjacob = self.DCjacobian(r)
         return -1j * omega * torch.diag(self.tau_x_vec) - DCjacob
     
-    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True, device='cpu', dtype=torch.float32):
+    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True):
         """
         Find the fixed point for rate dynamics, given an input vector.
         
@@ -101,26 +101,24 @@ class _SSN_Base(object):
         r_fp (torch.Tensor): Fixed point rate vector.
         CONVG (bool): True if convergence was achieved, False otherwise.
         """
-        inp_vec = inp_vec.to(device=device, dtype=dtype)
+        inp_vec = inp_vec.to(device=self.device, dtype=self.dtype)
         
         if r_init is None:
-            r_init = torch.zeros_like(inp_vec)
+            r_init = torch.zeros_like(inp_vec,dtype=self.dtype)
         else:
-            r_init = r_init.to(device=device, dtype=dtype)
+            r_init = r_init.to(device=self.device, dtype=self.dtype)
         
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        
-        test_r = torch.ones_like(inp_vec)  # Replace with an appropriate test value
-            
-        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, device=device, dtype=dtype)
+                    
+        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, device=self.device, dtype=self.dtype)
         if not CONVG:
             print('Did not reach fixed point.')
             
         return r_fp, CONVG
 
-    def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, device='cpu', dtype=torch.float32):
+    def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
         """
         Find the fixed point for the system dynamics, given an input vector.
 
@@ -129,21 +127,21 @@ class _SSN_Base(object):
         x_fp (torch.Tensor): Fixed point state vector.
         CONVG (bool): True if convergence was achieved, False otherwise.
         """
-        inp_vec = inp_vec.to(device=device, dtype=dtype)
+        inp_vec = inp_vec.to(device=self.device, dtype=self.dtype)
         
         if x_init is None:
-            x_init = torch.zeros((self.dim,), device=device, dtype=dtype)
+            x_init = torch.zeros((self.dim,), device=self.device, dtype=self.dtype)
         else:
-            x_init = x_init.to(device=device, dtype=dtype)
+            x_init = x_init.to(device=self.device, dtype=self.dtype)
             
         dxdt = lambda x : self.dxdt(x, inp_vec)
-        x_fp, CONVG = Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol=xtol, PLOT=PLOT, device=device, dtype=dtype)
+        x_fp, CONVG = Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol=xtol, PLOT=PLOT, device=self.device, dtype=self.dtype)
         if not CONVG:
             print('Did not reach fixed point.')
             
         return x_fp, CONVG
 
-    def make_noise_cov(self, noise_pars, device='cpu', dtype=torch.float32):
+    def make_noise_cov(self, noise_pars):
         """
         Create the noise covariance matrix based on noise parameters.
 
@@ -157,9 +155,9 @@ class _SSN_Base(object):
         spatl_filt (torch.Tensor): Spatial filter.
         """
         noise_sigsq = torch.cat([
-            (noise_pars.stdevE ** 2) * torch.ones(self.Ne, device=device, dtype=dtype),
-            (noise_pars.stdevI ** 2) * torch.ones(self.Ni, device=device, dtype=dtype)
+            (noise_pars.stdevE ** 2) * torch.ones(self.Ne, device=self.device, dtype=self.dtype),
+            (noise_pars.stdevI ** 2) * torch.ones(self.Ni, device=self.device, dtype=self.dtype)
         ])
-        spatl_filt = torch.tensor(1, device=device, dtype=dtype)
+        spatl_filt = torch.tensor(1, device=self.device, dtype=self.dtype)
 
         return noise_sigsq, spatl_filt
