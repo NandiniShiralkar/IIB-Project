@@ -149,7 +149,7 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
         z = torch.zeros_like(X, dtype=torch.complex128)
         for j in range(nn):
             kj = torch.tensor([np.cos(j * np.pi / nn), np.sin(j * np.pi / nn)]) * 2 * np.pi / (hyper_col)
-            sj = 2 * np.random.choice([-1, 1])  # random number that's either + or -1
+            sj = 2 * np.random.choice([0, 2]) - 1 # random number that's either + or -1
             phij = np.random.rand() * 2 * np.pi
 
             tmp = (X * kj[0] + Y * kj[1]) * sj + phij
@@ -286,6 +286,7 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
             sig_ori_IF = sig_ori_EF
 
         distsq = lambda x: torch.min(torch.abs(x), self._Lring - torch.abs(x)) ** 2
+        print("ORI_vec: ",self.ori_vec)
         dori = self.ori_vec - ori_s
         if not ONLY_E:
             ori_fac = torch.cat((
@@ -381,3 +382,26 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
             e_LFP.append(1.0 * (self.EI & (dist_sq < LFPradius**2)))
 
         return torch.stack(e_LFP).T
+    
+    def run_simulation(self, input, duration=500, dt=1):
+    
+        # Initialize rates 
+        r = torch.zeros(self.N)
+    
+        # Array to store rates over time
+        rates = torch.zeros(self.N, duration)
+    
+        # Loop over time steps
+        for t in range(duration):
+        
+            # Euler integration 
+            r = r + dt*self.drdt(r, input)
+        
+            # Store rates
+            rates[:,t] = r.detach().clone()
+        
+        # Use last quarter time window for steady-state  
+        start = int(0.75*duration)
+        r_ss = rates[:, start:].mean(1)
+    
+        return r_ss

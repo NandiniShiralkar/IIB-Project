@@ -477,11 +477,13 @@ class SSN2DTopoV1(_SSN_Base):
         """
         if ori_s is None:  # set stim ori to pref ori of grid center E cell (same as I cell)
             ori_s = self.ori_vec[(self.x_vec==0) & (self.y_vec==0) & (self.EI==b"E")]
+            print(ori_s)
         if sig_ori_IF is None:
             sig_ori_IF = sig_ori_EF
 
         distsq = lambda x: np.minimum(np.abs(x), SSN2DTopoV1._Lring - np.abs(x))**2
         dori = self.ori_vec - ori_s
+        print("ORI_vec: ",self.ori_vec)
         if not ONLY_E:
             ori_fac = np.hstack((gE * np.exp(-distsq(dori[:self.Ne])/(2* sig_ori_EF**2)),
                                  gI * np.exp(-distsq(dori[self.Ne:])/(2* sig_ori_IF**2))))
