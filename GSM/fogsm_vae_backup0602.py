@@ -140,8 +140,7 @@ class VariationalEncoder(nn.Module):
         for layer in self.fc_layers:
             x = layer(x)
         g_mean = self.fc_g_mean(x)
-        g_chol_flat = self.fc_g_chol(x)    
-        print(g_chol_flat.size())    
+        g_chol_flat = self.fc_g_chol(x)        
         A_mean = self.fc_A_mean(x)
         A_logvar = self.fc_A_logvar(x)
         return g_mean, g_chol_flat, A_mean, A_logvar
@@ -197,17 +196,17 @@ class FoGSMVAE(FoGSMModel):
         Converts the flattened Cholesky parameter into a lower triangular matrix.
 
         """
-        num_g_points, chol_flat_size = chol_flat.shape
-        g_dim = int((-1 + np.sqrt(1 + 8 * chol_flat_size)) / 2)
+        g_dim = chol_flat.size(1)
+        num_g_points = chol_flat.size(0)
+        # Create a zero matrix to store the lower triangular matrices
+        L_matrices = []
 
-        L_matrices = torch.zeros((num_g_points, g_dim, g_dim), dtype=chol_flat.dtype) 
-
+        #add a live tqdm bar
         for i in tqdm(range(num_g_points)): 
             L = torch.zeros((g_dim, g_dim))
             tril_indices = torch.tril_indices(row=g_dim, col=g_dim)
-            L[tril_indices[0], tril_indices[1]] = chol_flat[i]  
-            L_matrices[i] = L
-            
+            L[tril_indices[0], tril_indices[1]] = chol_flat[i]
+            L_matrices.append(L)
             tqdm.write(f'Building lower triangular matrix {i+1}/{num_g_points}')
             tqdm.write(f'Cholesky parameter: {chol_flat[i]}')
 
@@ -246,6 +245,7 @@ class FoGSMVAE(FoGSMModel):
     def forward(self, I):
         g_mean, g_chol_flat, A_mean, A_logvar = self.encoder(I)
 
+        print("Building lower triangular matrix for Cholesky parameter")
         self.build_lower_triangular(g_chol_flat)
 
         g_samples = self.reparameterise(g_mean, chol_flat=True,num_samples=1000)
@@ -284,10 +284,10 @@ class FoGSMVAE(FoGSMModel):
     def compute_kl_divergence_gp(self, g_mean):
         """
         Computes the KL divergence between the mean-field approximated posterior over g
-        and the GP prior
+        and the GP prior, using the precomputed full covariance matrices stored in self.Sigma.
         """
-        num_g_points = g_mean.size(0) 
-        g_dim = g_mean.size(1)  
+        num_g_points = g_mean.size(0)  # Number of Gaussian Process points
+        g_dim = g_mean.size(1)  # Dimension of the Gaussian Process
         K_g = self.K_g  # GP prior covariance matrix
 
         Sigma = torch.matmul(self.L_matrices, self.L_matrices.permute(0, 2, 1))
