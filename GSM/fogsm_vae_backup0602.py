@@ -284,7 +284,7 @@ class FoGSMVAE(FoGSMModel):
     def compute_kl_divergence_gp(self, g_mean):
         """
         Computes the KL divergence between the mean-field approximated posterior over g
-        and the GP prior, using the precomputed full covariance matrices stored in self.Sigma.
+        and the GP prior, using the precomputed full covariance matrices.
         """
         num_g_points = g_mean.size(0)  # Number of Gaussian Process points
         g_dim = g_mean.size(1)  # Dimension of the Gaussian Process
@@ -324,6 +324,7 @@ class FoGSMVAE(FoGSMModel):
             kl_divergence = self.compute_kl_divergence_gp(mean)
         else:
             kl_divergence = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+            
         return kl_divergence
     
     def compute_elbo(self, original_I, reconstructed_I, g_mean, g_logvar, A_mean, A_logvar):

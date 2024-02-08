@@ -170,7 +170,6 @@ class VariationalDecoder(nn.Module):
         reconstructed_x = self.fc_output(x)
         return reconstructed_x
 
-
 class FoGSMVAE(FoGSMModel):
 
     """ 
@@ -207,7 +206,7 @@ class FoGSMVAE(FoGSMModel):
             tril_indices = torch.tril_indices(row=g_dim, col=g_dim)
             L[tril_indices[0], tril_indices[1]] = chol_flat[i]  
             L_matrices[i] = L
-            
+
             tqdm.write(f'Building lower triangular matrix {i+1}/{num_g_points}')
             tqdm.write(f'Cholesky parameter: {chol_flat[i]}')
 
