@@ -1,8 +1,9 @@
-from _imports import *
-from utils import Euler2fixedpt
+from ._imports import *
+from .utils import Euler2fixedpt
 
-class _SSN_Base(object):
+class _SSN_Base(nn.Module):
     def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None, device='cpu', dtype=torch.float64):
+        super(_SSN_Base, self).__init__()
         self.n = n
         self.k = k
         self.Ne = Ne
@@ -36,7 +37,24 @@ class _SSN_Base(object):
         Compared to self.drdt allows for inp_vec and r to be
         matrices with arbitrary shape[1]
         """
-        return ((-r + self.powlaw(torch.mm(self.W, r) + inp_vec)).transpose(0,1) / self.tau_vec).transpose(0,1)
+        # Add an extra dimension to r for broadcasting
+        r_expanded = r.unsqueeze(-1).double()
+    
+        # Compute the matrix multiplication along the last two dimensions
+        Wr = torch.matmul(self.W, r_expanded).squeeze(-1)
+    
+        # Add the input vector to the result
+        Wr_plus_inp = Wr + inp_vec.double()
+    
+        # Apply the power law function
+        pow_result = self.powlaw(Wr_plus_inp)
+    
+        # Compute the derivative
+        drdt = (-r + pow_result) / self.tau_vec.double()
+    
+        return drdt
+        
+        #return ((-r + self.powlaw(torch.mm(self.W, r) + inp_vec)).transpose(0,1) / self.tau_vec).transpose(0,1)
 
     def dxdt(self, x, inp_vec):
         """

@@ -21,8 +21,6 @@ import sys
 import logging  
 
 # Torch Vision
-import torchvision.transforms as transforms
-from torchvision.transforms import functional as TF
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.nn import Parameter
 from PIL import Image

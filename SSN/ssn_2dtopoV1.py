@@ -1,18 +1,31 @@
-from _imports import *
-from ssn_base import _SSN_Base
+from ._imports import *
+from .ssn_base import _SSN_Base
 
-class SSN2DTopoV1(_SSN_Base,nn.Module):
+
+class SSN2DTopoV1(_SSN_Base):
     _Lring = 180
 
     def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, ori_map=None,**kwargs):
+
         Ne = Ni = grid_pars.gridsize_Nx ** 2
         tau_vec = torch.cat([tauE * torch.ones(Ne), tauI * torch.ones(Ni)]).double()
+
         super(SSN2DTopoV1, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni, tau_vec=tau_vec, **kwargs)
+        print("SSN2DTopoV1.__init__")
         self.grid_pars = grid_pars
+        print("grid_pars: ",grid_pars)
         self.conn_pars = conn_pars
+        print("conn_pars: ",conn_pars)
         self._make_maps(grid_pars,ori_map)
         if conn_pars is not None:
+            print("Making W")
             self.make_W(**conn_pars)
+            print("W made")
+
+        print("SSN2DTopoV1.__init__ done")
+        self.J_2x2 = nn.Parameter(conn_pars['J_2x2'])
+        self.s_2x2 = nn.Parameter(conn_pars['s_2x2'])
+        self.p_local = nn.Parameter(torch.tensor(conn_pars['p_local']))
 
     @property
     def neuron_params(self):
@@ -130,6 +143,7 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
 
         self.x_map = X
         self.y_map = Y
+        #GENERALISE to have repetition i.e., 8 neurons per location at grid so theres some repetatin in the orientation map
         self.x_vec = X.ravel().repeat(2)
         self.y_vec = Y.ravel().repeat(2)
         return self.x_map, self.y_map
@@ -167,6 +181,9 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
         Lx = Ly = self.grid_pars.gridsize_mm
 
         def absdiff_ring(d_x, L):
+            #GENERALIZE to depending on optional inputs -- arc distance vs cos distance, look at homoring
+            #Rewrite make_orimap, take orientation on one ring and r4epeta it agcross the grid 
+
             return torch.minimum(torch.abs(d_x), L - torch.abs(d_x))
 
         if PERIODIC:
@@ -198,13 +215,13 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
         :param Jnoise_GAUSSIAN: if True, noise is Gaussian, otherwise it's uniform
         :param MinSyn: minimum synaptic weight
         :param CellWiseNormalized: if True, normalize weights cell-wise
-        :param PERIODIC: if True, use periodic boundary conditions
+        :param PERIODIC: if True, use periodic boundary conditions 
+        #MAKE PERIODIC FALSE BY DEFAULT - the grid is on a taurus 
+
         :return: connectivity matrix W
         """
         conn_pars = locals()
         conn_pars.pop("self")
-        self.conn_pars = conn_pars
-
 
         if hasattr(self, "xy_dist") and hasattr(self, "ori_dist"):
             xy_dist = self.xy_dist
@@ -383,25 +400,27 @@ class SSN2DTopoV1(_SSN_Base,nn.Module):
 
         return torch.stack(e_LFP).T
     
-    def run_simulation(self, input, duration=500, dt=1):
+    def run_simulation(self, input_batch, duration=500, dt=1,multiplier=0.25):
     
-        # Initialize rates 
-        r = torch.zeros(self.N)
+        # Initialise rates 
+        r = torch.zeros(input_batch.shape[0],self.N)
     
         # Array to store rates over time
-        rates = torch.zeros(self.N, duration)
+        rates = torch.zeros(input_batch.shape[0],self.N, duration)
     
         # Loop over time steps
         for t in range(duration):
         
             # Euler integration 
-            r = r + dt*self.drdt(r, input)
+            r = r + dt*self.drdt_multi(r, input_batch)
         
             # Store rates
             rates[:,t] = r.detach().clone()
         
         # Use last quarter time window for steady-state  
-        start = int(0.75*duration)
-        r_ss = rates[:, start:].mean(1)
+        start = int(multiplier*duration)
+        r_ss = rates[:, start:].mean(-1)
     
         return r_ss
+    
+ 

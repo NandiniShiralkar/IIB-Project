@@ -1,4 +1,4 @@
-from _imports import*
+from ._imports import*
 
 class GridParameters:
     def __init__(self, gridsize_Nx, gridsize_deg, magnif_factor, hyper_col):

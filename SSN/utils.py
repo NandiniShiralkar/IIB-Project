@@ -1,4 +1,4 @@
-from _imports import *
+from ._imports import *
 
 def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True, device='cpu', dtype=torch.float32):
     """
