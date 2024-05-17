@@ -79,8 +79,12 @@ class FoGSMModel(nn.Module):
             for j in range(len(self.thetas)):
                 loc_kernel_val[i,j] = self.composite_feature_kernel(self.thetas[i], self.thetas[j])
         
-        K_spatial = torch.sum(loc_kernel_val, dim=[0, 1])
-        K_g = torch.kron(K_spatial, ori_kernel_val)
+        # K_spatial = torch.sum(loc_kernel_val, dim=[0, 1])
+        # K_g = torch.kron(K_spatial, ori_kernel_val)
+
+        # K_g = ori_kernel_val[:, :, None, None] * loc_kernel_val
+        K_g = ori_kernel_val.unsqueese((-1,-2)) * loc_kernel_val
+        K_g = K_g.transpose((0,2,1,3)).reshape((len(self.thetas) * self.grid_size**2, len(self.thetas) * self.grid_size**2))
         
         return K_g + self.jitter * torch.eye(len(self.thetas)*self.grid_size**2)
 
@@ -108,6 +112,13 @@ class FoGSMModel(nn.Module):
         I_hat = g * A
         I_hat = torch.sum(I_hat.reshape(len(self.thetas), self.grid_size, self.grid_size), dim=0)
         return MultivariateNormal(I_hat.flatten(), self.sigma * torch.eye(self.grid_size**2)).log_prob(I.flatten())
+
+    def likelihood(self, I, g,A):
+        A = A.repeat(len(self.thetas))
+        I_hat = g * A
+        I_hat = torch.sum(I_hat.reshape(len(self.thetas), self.grid_size, self.grid_size), dim=0)
+        # CHECK if .prob method used in the next line exists 
+        return MultivariateNormal(I_hat.flatten(), self.sigma * torch.eye(self.grid_size**2)).prob(I.flatten())
 
     def visualise(self, combined_fields):
 
